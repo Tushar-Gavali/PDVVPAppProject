@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "578885139567",
+    "project_id": "pdvvp-d612f",
+    "storage_bucket": "pdvvp-d612f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:578885139567:android:a6779849fafc521184219a",
+        "android_client_info": {
+          "package_name": "com.edutrack"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCADh7hhi0RJbJ5Lv1WrobyY6HneFQXxB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
