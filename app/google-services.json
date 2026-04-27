@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "578885139567",
-    "project_id": "pdvvp-d612f",
-    "storage_bucket": "pdvvp-d612f.firebasestorage.app"
+    "project_number": "144344113551",
+    "project_id": "coenagar-9ec86",
+    "storage_bucket": "coenagar-9ec86.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:578885139567:android:a6779849fafc521184219a",
+        "mobilesdk_app_id": "1:144344113551:android:20549a71b70c3373d1ebfa",
         "android_client_info": {
-          "package_name": "com.edutrack"
+          "package_name": "com.coeapp.edutech"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyCADh7hhi0RJbJ5Lv1WrobyY6HneFQXxB0"
+          "current_key": "AIzaSyDLa2JR6KbJks5sRZ2cyaR6GmjlTy2HjIc"
         }
       ],
       "services": {

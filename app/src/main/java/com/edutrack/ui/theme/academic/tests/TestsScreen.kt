@@ -3,6 +3,8 @@ package com.edutrack.ui.academic.tests
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,15 +14,56 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.edutrack.data.model.Test
-import com.edutrack.data.model.TestType
-import com.edutrack.data.model.TestResult
-import java.time.LocalDate
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.edutrack.data.model.Exam
+import com.edutrack.data.model.ExamAttempt
+import com.edutrack.data.model.UiState
+import com.edutrack.data.model.UserProfile
+import com.edutrack.ui.viewmodel.ExamViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TestsScreen(onBack: () -> Unit) {
+fun TestsScreen(
+    studentProfile: UserProfile,
+    onBack: () -> Unit,
+    viewModel: ExamViewModel = viewModel()
+) {
+    val examsState by viewModel.exams.collectAsStateWithLifecycle()
+    val attemptsState by viewModel.examAttempts.collectAsStateWithLifecycle()
+    val operationResult by viewModel.operationResult.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var selectedTab by remember { mutableStateOf(0) }
+    var activeExam by remember { mutableStateOf<Exam?>(null) } // Set when student starts an exam
+
+    LaunchedEffect(studentProfile.userId, studentProfile.userClass, studentProfile.division) {
+        viewModel.loadExamsForStudent(studentProfile.userClass, studentProfile.division)
+        viewModel.loadAttemptsForStudent(studentProfile.userId)
+    }
+
+    LaunchedEffect(operationResult) {
+        operationResult?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearOperationResult()
+        }
+    }
+
+    if (activeExam != null) {
+        ExamTakingScreen(
+            exam = activeExam!!,
+            studentProfile = studentProfile,
+            onDismiss = { activeExam = null },
+            onSubmit = { attempt ->
+                viewModel.submitExamAttempt(attempt)
+                activeExam = null
+                selectedTab = 1 // Switch to results tab automatically
+            }
+        )
+        return // Take up full screen instead of standard scaffold
+    }
 
     Scaffold(
         topBar = {
@@ -31,13 +74,12 @@ fun TestsScreen(onBack: () -> Unit) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { /* Add new test */ }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Test")
-                    }
-                }
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -48,314 +90,284 @@ fun TestsScreen(onBack: () -> Unit) {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Question Papers") }
+                    text = { Text("Available Exams") }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Internal Tests") }
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = { Text("Results") }
+                    text = { Text("Test Results") }
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             when (selectedTab) {
-                0 -> QuestionPapersView()
-                1 -> InternalTestsView()
-                2 -> TestResultsView()
+                0 -> {
+                    // Filter exams that have already been attempted
+                    val attemptsList = if (attemptsState is UiState.Success) {
+                        (attemptsState as UiState.Success<List<ExamAttempt>>).data
+                    } else emptyList()
+                    val attemptedExamIds = attemptsList.map { it.examId }.toSet()
+
+                    when (val state = examsState) {
+                        is UiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                        is UiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(state.message, color = MaterialTheme.colorScheme.error) }
+                        is UiState.Empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No exams assigned to your class.", color = Color.Gray) }
+                        is UiState.Success -> {
+                            val availableExams = state.data.filter { it.id !in attemptedExamIds }
+                            if (availableExams.isEmpty()) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("You've completed all assigned exams!", color = Color.Gray) }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(availableExams) { exam ->
+                                        StudentExamCard(exam = exam, onClick = { activeExam = exam })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    when (val state = attemptsState) {
+                        is UiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                        is UiState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(state.message, color = MaterialTheme.colorScheme.error) }
+                        is UiState.Empty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No test results available yet.", color = Color.Gray) }
+                        is UiState.Success -> {
+                            // Need exam details to map exam ID to Exam Title (or we can just store title in Attempt)
+                            // We didn't store title in Attempt in FirestoreModels, so let's cross-reference exams
+                            val examsList = if (examsState is UiState.Success) {
+                                (examsState as UiState.Success<List<Exam>>).data
+                            } else emptyList()
+                            val examMap = examsList.associateBy { it.id }
+
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(state.data) { attempt ->
+                                    val examTitle = examMap[attempt.examId]?.title ?: "Unknown Exam"
+                                    TestResultCard(attempt = attempt, examTitle = examTitle)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun QuestionPapersView() {
-    // Mock data for question papers
-    val questionPapers = remember {
-        listOf(
-            Test(
-                id = "QP001",
-                title = "Data Structures - Mid Term",
-                description = "Mid semester examination for Data Structures",
-                subjectId = "CS201",
-                testType = TestType.WRITTEN,
-                totalMarks = 100,
-                duration = 180,
-                scheduledDate = LocalDate.now().plusDays(7),
-                scheduledTime = "09:00",
-                venue = "Hall A",
-                createdBy = "Prof. Smith"
-            ),
-            Test(
-                id = "QP002",
-                title = "Algorithms - Final Exam",
-                description = "Final examination for Algorithms course",
-                subjectId = "CS202",
-                testType = TestType.WRITTEN,
-                totalMarks = 100,
-                duration = 180,
-                scheduledDate = LocalDate.now().plusDays(14),
-                scheduledTime = "14:00",
-                venue = "Hall B",
-                createdBy = "Prof. Johnson"
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "Upcoming Question Papers",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        items(questionPapers) { test ->
-            TestCard(test = test)
-        }
-    }
-}
-
-@Composable
-fun InternalTestsView() {
-    // Mock data for internal tests
-    val internalTests = remember {
-        listOf(
-            Test(
-                id = "IT001",
-                title = "Database Quiz 1",
-                description = "First quiz on database fundamentals",
-                subjectId = "CS301",
-                testType = TestType.INTERNAL,
-                totalMarks = 25,
-                duration = 30,
-                scheduledDate = LocalDate.now().plusDays(3),
-                scheduledTime = "11:00",
-                venue = "Lab 1",
-                createdBy = "Prof. Davis"
-            ),
-            Test(
-                id = "IT002",
-                title = "Software Engineering Assignment Test",
-                description = "Test on software development lifecycle",
-                subjectId = "CS302",
-                testType = TestType.INTERNAL,
-                totalMarks = 50,
-                duration = 60,
-                scheduledDate = LocalDate.now().plusDays(5),
-                scheduledTime = "15:00",
-                venue = "Room 201",
-                createdBy = "Prof. Wilson"
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "Internal Tests",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        items(internalTests) { test ->
-            TestCard(test = test)
-        }
-    }
-}
-
-@Composable
-fun TestResultsView() {
-    // Mock data for test results
-    val testResults = remember {
-        listOf(
-            TestResult(
-                id = "TR001",
-                testId = "QP001",
-                studentId = "S001",
-                obtainedMarks = 85,
-                totalMarks = 100,
-                percentage = 85.0,
-                grade = "A",
-                remarks = "Excellent performance"
-            ),
-            TestResult(
-                id = "TR002",
-                testId = "IT001",
-                studentId = "S001",
-                obtainedMarks = 22,
-                totalMarks = 25,
-                percentage = 88.0,
-                grade = "A+",
-                remarks = "Outstanding"
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "Test Results",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        items(testResults) { result ->
-            TestResultCard(result = result)
-        }
-    }
-}
-
-@Composable
-fun TestCard(test: Test) {
+fun StudentExamCard(exam: Exam, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        onClick = { /* Navigate to test details */ }
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = test.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = test.description ?: "No description",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                
-                AssistChip(
-                    onClick = { },
-                    label = { Text(test.testType.name) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = when (test.testType) {
-                            TestType.WRITTEN -> MaterialTheme.colorScheme.primaryContainer
-                            TestType.INTERNAL -> MaterialTheme.colorScheme.secondaryContainer
-                            else -> MaterialTheme.colorScheme.tertiaryContainer
-                        }
-                    )
-                )
-            }
-            
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = exam.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "By Instructor: ${exam.teacherName}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.DateRange, contentDescription = "Date", tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("${test.scheduledDate} at ${test.scheduledTime}", style = MaterialTheme.typography.bodySmall)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("${exam.questions.size} Questions", style = MaterialTheme.typography.labelMedium)
+                Button(onClick = onClick) {
+                    Text("Start Exam")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.ArrowForward, null, Modifier.size(16.dp))
                 }
-                
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AccessTime, contentDescription = "Duration", tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("${test.duration} mins", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                test.venue?.let { venue ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Venue", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(venue, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                
-                Text("Marks: ${test.totalMarks}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
         }
     }
 }
 
 @Composable
-fun TestResultCard(result: TestResult) {
+fun TestResultCard(attempt: ExamAttempt, examTitle: String) {
+    val percentage = if (attempt.totalMarks > 0) ((attempt.obtainedMarks.toFloat() / attempt.totalMarks) * 100).toInt() else 0
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Test ID: ${result.testId}",
+                    text = examTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = result.remarks ?: "No remarks",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "Submitted on ${SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(attempt.timestamp))}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${result.obtainedMarks}/${result.totalMarks} (${result.percentage}%)",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Score: ${attempt.obtainedMarks}/${attempt.totalMarks} ($percentage%)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = when (result.grade) {
-                        "A+", "A" -> Color(0xFF4CAF50)
-                        "B+", "B" -> Color(0xFF2196F3)
-                        "C+", "C" -> Color(0xFFFF9800)
+                    containerColor = when {
+                        percentage >= 80 -> Color(0xFF4CAF50)
+                        percentage >= 60 -> Color(0xFF2196F3)
+                        percentage >= 40 -> Color(0xFFFF9800)
                         else -> Color(0xFFF44336)
                     }
                 )
             ) {
                 Text(
-                    text = result.grade,
+                    text = when {
+                        percentage >= 80 -> "A"
+                        percentage >= 60 -> "B"
+                        percentage >= 40 -> "C"
+                        else -> "Fail"
+                    },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExamTakingScreen(
+    exam: Exam,
+    studentProfile: UserProfile,
+    onDismiss: () -> Unit,
+    onSubmit: (ExamAttempt) -> Unit
+) {
+    // Map to store student's selected option index for each question index
+    var selectedAnswers by remember { mutableStateOf(mutableMapOf<Int, Int>()) }
+    var submitConfirmDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(exam.title) },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel Exam")
+                    }
+                },
+                actions = {
+                    Text(
+                        "${selectedAnswers.size}/${exam.questions.size} Answered",
+                        modifier = Modifier.padding(end = 16.dp),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            )
+        },
+        bottomBar = {
+            BottomAppBar {
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = { submitConfirmDialog = true },
+                    modifier = Modifier.padding(end = 16.dp)
+                ) {
+                    Icon(Icons.Default.Send, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Submit Exam")
+                }
+            }
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            itemsIndexed(exam.questions) { qIndex, question ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Question ${qIndex + 1}", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text(question.text, style = MaterialTheme.typography.bodyLarge)
+                        Spacer(Modifier.height(12.dp))
+                        
+                        question.options.forEachIndexed { optIndex, optionText ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                RadioButton(
+                                    selected = selectedAnswers[qIndex] == optIndex,
+                                    onClick = { 
+                                        val newAnswers = selectedAnswers.toMutableMap()
+                                        newAnswers[qIndex] = optIndex
+                                        selectedAnswers = newAnswers
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(optionText, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (submitConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { submitConfirmDialog = false },
+                title = { Text("Submit Exam?") },
+                text = { Text("Are you sure you want to submit? You have answered ${selectedAnswers.size} out of ${exam.questions.size} questions.") },
+                confirmButton = {
+                    Button(onClick = {
+                        // Auto-grade submission
+                        var obtainedMarks = 0
+                        var totalMarks = 0
+                        exam.questions.forEachIndexed { idx, q ->
+                            totalMarks += q.marks
+                            val studentAnswer = selectedAnswers[idx] ?: -1
+                            if (studentAnswer == q.correctAnswerIndex) {
+                                obtainedMarks += q.marks
+                            }
+                        }
+
+                        val attempt = ExamAttempt(
+                            examId = exam.id,
+                            studentId = studentProfile.userId,
+                            studentName = studentProfile.name,
+                            obtainedMarks = obtainedMarks,
+                            totalMarks = totalMarks
+                        )
+                        onSubmit(attempt)
+                        submitConfirmDialog = false
+                    }) {
+                        Text("Confirm")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { submitConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

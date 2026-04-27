@@ -2,7 +2,6 @@ package com.edutrack.ui.academic.teacher
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,72 +15,45 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.edutrack.data.model.Teacher
+import com.edutrack.data.model.UserProfile
 import com.edutrack.data.model.TeacherActivity
 import com.edutrack.data.model.ActivityType
-
-import java.time.LocalDate
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import java.time.LocalDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TeacherProfileScreen(onBack: () -> Unit) {
-
-    // Mock teacher data
-    val teacher = remember {
-        Teacher(
-            id = "T001",
-            name = "Dr. Sarah Johnson",
-            email = "sarah.johnson@university.edu",
-            phone = "1234567890",
-            employeeId = "EMP001",
-            department = "Computer Science",
-            designation = "Professor",
-            qualification = "Ph.D. in Computer Science",
-            experience = 15,
-            specialization = listOf("Machine Learning", "Data Structures", "Algorithms"),
-            subjects = listOf("Data Structures", "Machine Learning", "Software Engineering"),
-            dateOfBirth = LocalDate.of(1975, 6, 15),
-            joiningDate = LocalDate.of(2010, 8, 1),
-            address = "123 Faculty Lane, University City",
-            isActive = true
-        )
-    }
-
+fun TeacherProfileScreen(
+    userProfile: UserProfile,
+    onUpdateProfile: (UserProfile) -> Unit,
+    onBack: () -> Unit
+) {
+    var showEditDialog by remember { mutableStateOf(false) }
+    
     val recentActivities = remember {
         listOf(
             TeacherActivity(
                 id = "A001",
                 type = ActivityType.CLASS_TAKEN,
-                title = "Data Structures Lecture",
-                description = "Conducted lecture on Binary Trees",
+                title = "Platform Login",
+                description = "Teacher successfully logged in",
                 timestamp = LocalDateTime.now().minusHours(2),
-                relatedId = "CS201"
-            ),
-            TeacherActivity(
-                id = "A002",
-                type = ActivityType.ASSIGNMENT_CREATED,
-                title = "Assignment 3 Created",
-                description = "Created assignment on Graph Algorithms",
-                timestamp = LocalDateTime.now().minusDays(1),
-                relatedId = "A003"
-            ),
-            TeacherActivity(
-                id = "A003",
-                type = ActivityType.EXAM_CONDUCTED,
-                title = "Mid-term Exam",
-                description = "Conducted mid-term exam for CS201",
-                timestamp = LocalDateTime.now().minusDays(3),
-                relatedId = "EX001"
-            ),
-            TeacherActivity(
-                id = "A004",
-                type = ActivityType.STUDENT_EVALUATED,
-                title = "Assignment Graded",
-                description = "Graded 45 student assignments",
-                timestamp = LocalDateTime.now().minusDays(5),
-                relatedId = "A002"
+                relatedId = null
             )
+        )
+    }
+
+    val teacherSubjects = userProfile.subjects.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+    if (showEditDialog) {
+        EditProfileDialog(
+            currentProfile = userProfile,
+            onDismiss = { showEditDialog = false },
+            onSave = { updatedProfile ->
+                onUpdateProfile(updatedProfile)
+                showEditDialog = false
+            }
         )
     }
 
@@ -95,7 +67,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* Edit Profile */ }) {
+                    IconButton(onClick = { showEditDialog = true }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Profile")
                     }
                 }
@@ -111,7 +83,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
             item {
                 // Enhanced Profile Header
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
@@ -153,7 +125,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Text(
-                            text = teacher.name,
+                            text = userProfile.name.ifEmpty { "Teacher Name" },
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -162,7 +134,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         Text(
-                            text = teacher.designation,
+                            text = userProfile.designation.ifEmpty { "Designation" },
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -170,7 +142,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                         Spacer(modifier = Modifier.height(4.dp))
                         
                         Text(
-                            text = teacher.department,
+                            text = userProfile.department.ifEmpty { "Department" },
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
@@ -182,18 +154,18 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            StatCard("Students", "120", Icons.Default.People)
-                            StatCard("Subjects", "${teacher.subjects.size}", Icons.Default.Book)
-                            StatCard("Experience", "${teacher.experience} years", Icons.Default.Work)
+                            StatCard("Students", "${userProfile.studentCount}", Icons.Default.People)
+                            StatCard("Subjects", "${teacherSubjects.size}", Icons.Default.Book)
+                            StatCard("Experience", "${userProfile.experience} years", Icons.Default.Work)
                         }
                     }
                 }
             }
 
             item {
-                // Quick Stats
+                // Quick Stats duplicated as requested in the original layout
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(
@@ -210,9 +182,9 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            StatItem("Students", "120", Icons.Default.People)
-                            StatItem("Subjects", "${teacher.subjects.size}", Icons.Default.Book)
-                            StatItem("Experience", "${teacher.experience} years", Icons.Default.Work)
+                            StatItem("Students", "${userProfile.studentCount}", Icons.Default.People)
+                            StatItem("Subjects", "${teacherSubjects.size}", Icons.Default.Book)
+                            StatItem("Experience", "${userProfile.experience} years", Icons.Default.Work)
                         }
                     }
                 }
@@ -221,7 +193,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
             item {
                 // Personal Information
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(
@@ -233,51 +205,11 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        InfoRow("Employee ID", teacher.employeeId)
-                        InfoRow("Email", teacher.email)
-                        InfoRow("Phone", teacher.phone)
-                        InfoRow("Qualification", teacher.qualification)
-                        InfoRow("Joining Date", teacher.joiningDate.toString())
-                        InfoRow("Address", teacher.address ?: "Not provided")
-                    }
-                }
-            }
-
-            item {
-                // Specialization
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Specialization",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        teacher.specialization.forEach { spec ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Star,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = spec,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
+                        
+                        InfoRow("Email", userProfile.email)
+                        InfoRow("Phone", userProfile.phone.ifEmpty { "Not Provided" })
+                        InfoRow("Qualification", userProfile.qualification.ifEmpty { "Not Provided" })
+                        InfoRow("Address", userProfile.address.ifEmpty { "Not Provided" })
                     }
                 }
             }
@@ -285,7 +217,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
             item {
                 // Subjects Teaching
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(
@@ -298,22 +230,30 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        teacher.subjects.forEach { subject ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 2.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Book,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.secondary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = subject,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                        if (teacherSubjects.isEmpty()) {
+                            Text(
+                                text = "No subjects added yet.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            teacherSubjects.forEach { subject ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Book,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = subject,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
                             }
                         }
                     }
@@ -323,7 +263,7 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
             item {
                 // Recent Activities
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(
@@ -345,6 +285,126 @@ fun TeacherProfileScreen(onBack: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun EditProfileDialog(
+    currentProfile: UserProfile,
+    onDismiss: () -> Unit,
+    onSave: (UserProfile) -> Unit
+) {
+    var phone by remember { mutableStateOf(currentProfile.phone) }
+    var qualification by remember { mutableStateOf(currentProfile.qualification) }
+    var experience by remember { mutableStateOf(currentProfile.experience.toString()) }
+    var subjects by remember { mutableStateOf(currentProfile.subjects) }
+    var department by remember { mutableStateOf(currentProfile.department) }
+    var designation by remember { mutableStateOf(currentProfile.designation) }
+    var studentCount by remember { mutableStateOf(currentProfile.studentCount.toString()) }
+    var address by remember { mutableStateOf(currentProfile.address) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Profile") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("Phone") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it },
+                        label = { Text("Address") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = qualification,
+                        onValueChange = { qualification = it },
+                        label = { Text("Qualification") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = experience,
+                        onValueChange = { experience = it },
+                        label = { Text("Experience (Years)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = department,
+                        onValueChange = { department = it },
+                        label = { Text("Department") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = designation,
+                        onValueChange = { designation = it },
+                        label = { Text("Designation") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = studentCount,
+                        onValueChange = { studentCount = it },
+                        label = { Text("Total Students Handled") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = subjects,
+                        onValueChange = { subjects = it },
+                        label = { Text("Subjects (Comma Separated)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val expInt = experience.toIntOrNull() ?: 0
+                    val stdCount = studentCount.toIntOrNull() ?: 0
+                    val updated = currentProfile.copy(
+                        phone = phone,
+                        address = address,
+                        qualification = qualification,
+                        experience = expInt,
+                        department = department,
+                        designation = designation,
+                        studentCount = stdCount,
+                        subjects = subjects
+                    )
+                    onSave(updated)
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

@@ -11,14 +11,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.edutrack.data.model.Test
-import com.edutrack.data.model.TestType
-import java.time.LocalDate
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.edutrack.data.model.UiState
+import com.edutrack.data.model.UserProfile
+import com.edutrack.ui.viewmodel.CompetitiveViewModel
+import com.edutrack.ui.viewmodel.ProgressStats
+import com.edutrack.ui.viewmodel.UiCompetitiveExam
+import com.edutrack.ui.viewmodel.UiPreparationMaterial
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CompetitiveScreen(onBack: () -> Unit) {
+fun CompetitiveScreen(
+    studentProfile: UserProfile,
+    onBack: () -> Unit,
+    viewModel: CompetitiveViewModel = viewModel()
+) {
+    val examsState by viewModel.examsState.collectAsStateWithLifecycle()
+    val materialsState by viewModel.materialsState.collectAsStateWithLifecycle()
+    val progressStats by viewModel.progressStats.collectAsStateWithLifecycle()
+
     var selectedTab by remember { mutableStateOf(0) }
+    
+    LaunchedEffect(studentProfile.userId) {
+        viewModel.setStudentId(studentProfile.userId)
+    }
     
     Scaffold(
         topBar = {
@@ -59,113 +76,74 @@ fun CompetitiveScreen(onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
             
             when (selectedTab) {
-                0 -> CompetitiveExamsView()
-                1 -> PreparationMaterialsView()
-                2 -> CompetitiveProgressView()
+                0 -> CompetitiveExamsView(examsState, onRegister = { viewModel.registerForExam(it) })
+                1 -> PreparationMaterialsView(materialsState, onStart = { viewModel.startOrRetakeMaterial(it) })
+                2 -> CompetitiveProgressView(progressStats)
             }
         }
     }
 }
 
 @Composable
-fun CompetitiveExamsView() {
-    val competitiveExams = remember {
-        listOf(
-            CompetitiveExam(
-                id = "1",
-                name = "JEE Main",
-                description = "Joint Entrance Examination - Main",
-                examDate = LocalDate.of(2024, 4, 15),
-                registrationDeadline = LocalDate.of(2024, 3, 15),
-                isRegistered = true,
-                preparationStatus = PreparationStatus.IN_PROGRESS
-            ),
-            CompetitiveExam(
-                id = "2",
-                name = "GATE",
-                description = "Graduate Aptitude Test in Engineering",
-                examDate = LocalDate.of(2024, 2, 10),
-                registrationDeadline = LocalDate.of(2024, 1, 10),
-                isRegistered = false,
-                preparationStatus = PreparationStatus.NOT_STARTED
-            ),
-            CompetitiveExam(
-                id = "3",
-                name = "CAT",
-                description = "Common Admission Test",
-                examDate = LocalDate.of(2024, 11, 24),
-                registrationDeadline = LocalDate.of(2024, 9, 15),
-                isRegistered = true,
-                preparationStatus = PreparationStatus.COMPLETED
-            )
-        )
-    }
-    
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(competitiveExams) { exam ->
-            CompetitiveExamCard(
-                exam = exam,
-                onRegister = { /* Handle registration */ },
-                onViewDetails = { /* View exam details */ }
-            )
+fun CompetitiveExamsView(
+    examsState: UiState<List<UiCompetitiveExam>>,
+    onRegister: (String) -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (examsState) {
+            is UiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            is UiState.Empty -> Text("No competitive exams found.", modifier = Modifier.align(Alignment.Center))
+            is UiState.Error -> Text(examsState.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
+            is UiState.Success -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(examsState.data, key = { it.id }) { exam ->
+                        CompetitiveExamCard(
+                            exam = exam,
+                            onRegister = { onRegister(exam.id) },
+                            onViewDetails = { /* Handle details */ }
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun PreparationMaterialsView() {
-    val preparationMaterials = remember {
-        listOf(
-            PreparationMaterial(
-                id = "1",
-                title = "JEE Main Previous Year Papers",
-                type = MaterialType.PREVIOUS_PAPERS,
-                subject = "Mathematics",
-                difficulty = "Advanced",
-                isCompleted = false
-            ),
-            PreparationMaterial(
-                id = "2",
-                title = "GATE Mock Tests",
-                type = MaterialType.MOCK_TESTS,
-                subject = "Computer Science",
-                difficulty = "Expert",
-                isCompleted = true
-            ),
-            PreparationMaterial(
-                id = "3",
-                title = "CAT Quantitative Aptitude",
-                type = MaterialType.STUDY_MATERIAL,
-                subject = "Quantitative Aptitude",
-                difficulty = "Intermediate",
-                isCompleted = false
-            )
-        )
-    }
-    
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(preparationMaterials) { material ->
-            PreparationMaterialCard(
-                material = material,
-                onStart = { /* Start material */ },
-                onViewDetails = { /* View details */ }
-            )
+fun PreparationMaterialsView(
+    materialsState: UiState<List<UiPreparationMaterial>>,
+    onStart: (String) -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (materialsState) {
+            is UiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            is UiState.Empty -> Text("No preparation materials found.", modifier = Modifier.align(Alignment.Center))
+            is UiState.Error -> Text(materialsState.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
+            is UiState.Success -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(materialsState.data, key = { it.id }) { material ->
+                        PreparationMaterialCard(
+                            material = material,
+                            onStart = { onStart(material.id) },
+                            onViewDetails = { /* View details */ }
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-fun CompetitiveProgressView() {
+fun CompetitiveProgressView(
+    progress: ProgressStats
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -190,16 +168,15 @@ fun CompetitiveProgressView() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    ProgressItem("Exams Registered", "2", "3")
-                    ProgressItem("Mock Tests", "15", "20")
-                    ProgressItem("Study Hours", "120", "200")
+                    ProgressItem("Exams Registered", progress.examsRegistered.toString(), progress.totalExams.toString())
+                    ProgressItem("Materials", progress.materialsCompleted.toString(), progress.totalMaterials.toString())
                 }
             }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Performance Chart
+        // Performance Chart Mock
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -215,7 +192,7 @@ fun CompetitiveProgressView() {
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 // Add performance chart here
-                Text("Performance analytics and trends will be displayed here")
+                Text("Keep registering and studying! Analytics will be dynamically graphed here.")
             }
         }
     }
@@ -223,7 +200,7 @@ fun CompetitiveProgressView() {
 
 @Composable
 fun CompetitiveExamCard(
-    exam: CompetitiveExam,
+    exam: UiCompetitiveExam,
     onRegister: () -> Unit,
     onViewDetails: () -> Unit
 ) {
@@ -276,12 +253,13 @@ fun CompetitiveExamCard(
             ) {
                 AssistChip(
                     onClick = { },
-                    label = { Text(exam.preparationStatus.name) },
+                    label = { Text(exam.preparationStatus) },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = when (exam.preparationStatus) {
-                            PreparationStatus.NOT_STARTED -> MaterialTheme.colorScheme.errorContainer
-                            PreparationStatus.IN_PROGRESS -> MaterialTheme.colorScheme.primaryContainer
-                            PreparationStatus.COMPLETED -> MaterialTheme.colorScheme.secondaryContainer
+                            "NOT_STARTED" -> MaterialTheme.colorScheme.errorContainer
+                            "IN_PROGRESS" -> MaterialTheme.colorScheme.primaryContainer
+                            "COMPLETED" -> MaterialTheme.colorScheme.secondaryContainer
+                            else -> MaterialTheme.colorScheme.surface
                         }
                     )
                 )
@@ -309,7 +287,7 @@ fun CompetitiveExamCard(
 
 @Composable
 fun PreparationMaterialCard(
-    material: PreparationMaterial,
+    material: UiPreparationMaterial,
     onStart: () -> Unit,
     onViewDetails: () -> Unit
 ) {
@@ -355,7 +333,7 @@ fun PreparationMaterialCard(
                 ) {
                     AssistChip(
                         onClick = { },
-                        label = { Text(material.type.name) },
+                        label = { Text(material.type) },
                         colors = AssistChipDefaults.assistChipColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
@@ -408,29 +386,3 @@ fun ProgressItem(label: String, value: String, total: String) {
     }
 }
 
-data class CompetitiveExam(
-    val id: String,
-    val name: String,
-    val description: String,
-    val examDate: LocalDate,
-    val registrationDeadline: LocalDate,
-    val isRegistered: Boolean,
-    val preparationStatus: PreparationStatus
-)
-
-data class PreparationMaterial(
-    val id: String,
-    val title: String,
-    val type: MaterialType,
-    val subject: String,
-    val difficulty: String,
-    val isCompleted: Boolean
-)
-
-enum class PreparationStatus {
-    NOT_STARTED, IN_PROGRESS, COMPLETED
-}
-
-enum class MaterialType {
-    PREVIOUS_PAPERS, MOCK_TESTS, STUDY_MATERIAL, VIDEO_LECTURES, PRACTICE_QUESTIONS
-}

@@ -16,14 +16,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.edutrack.data.model.UserProfile
+import com.edutrack.ui.academic.assignments.AssignmentsScreen
 import com.edutrack.ui.academic.attendance.AttendanceScreen
 import com.edutrack.ui.academic.aptitude.AptitudeScreen
-import com.edutrack.ui.academic.assignments.AssignmentsScreen
 import com.edutrack.ui.academic.competitive.CompetitiveScreen
 import com.edutrack.ui.academic.events.EventNoticeScreen
 import com.edutrack.ui.academic.events.EventAttendanceScreen
 import com.edutrack.ui.academic.exams.ExamScreen
+import com.edutrack.ui.academic.marks.MarksScreen
 import com.edutrack.ui.academic.mentorship.MentorListScreen
+import com.edutrack.ui.academic.notifications.NotificationsScreen
 import com.edutrack.ui.academic.profile.StudentProfileScreen
 import com.edutrack.ui.academic.tests.TestsScreen
 import com.edutrack.ui.academic.timetable.TimetableScreen
@@ -33,48 +36,44 @@ import com.edutrack.ui.academic.timetable.TimetableScreen
 @Composable
 fun AcademicModule(
     navController: NavController,
+    studentProfile: UserProfile,
     onLogout: (() -> Unit)? = null,
     onProfileClick: (() -> Unit)? = null
 ) {
     var selectedFeature by remember { mutableStateOf<AcademicFeature?>(null) }
-    
+
     when (selectedFeature) {
         null -> AcademicDashboard(
+            studentProfile = studentProfile,
             onFeatureSelected = { selectedFeature = it },
             onLogout = onLogout,
             onProfileClick = onProfileClick
         )
-        AcademicFeature.ATTENDANCE -> AttendanceScreen(
+        // Feature screens
+        AcademicFeature.ATTENDANCE         -> AttendanceScreen(
+            studentProfile = studentProfile, onBack = { selectedFeature = null })
+        AcademicFeature.TESTS              -> TestsScreen(
+            studentProfile = studentProfile, onBack = { selectedFeature = null })
+        AcademicFeature.EVENT_NOTICE       -> EventNoticeScreen(onBack = { selectedFeature = null })
+        AcademicFeature.EVENT_ATTENDANCE   -> EventAttendanceScreen(onBack = { selectedFeature = null })
+        AcademicFeature.EXAMS              -> ExamScreen(
+            studentProfile = studentProfile, onBack = { selectedFeature = null })
+        AcademicFeature.MENTORSHIP         -> MentorListScreen(onBack = { selectedFeature = null })
+        // ── Firebase-backed screens ──────────────────────────────────────────
+        AcademicFeature.ASSIGNMENTS -> AssignmentsScreen(
+            studentProfile = studentProfile,
             onBack = { selectedFeature = null }
         )
-        AcademicFeature.APTITUDE -> AptitudeScreen(
+        AcademicFeature.NOTIFICATIONS -> NotificationsScreen(
+            studentProfile = studentProfile,
             onBack = { selectedFeature = null }
         )
-        AcademicFeature.COMPETITIVE -> CompetitiveScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.TESTS -> TestsScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.EVENT_NOTICE -> EventNoticeScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.EVENT_ATTENDANCE -> EventAttendanceScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.STUDENT_PROFILE -> StudentProfileScreen(
+        AcademicFeature.MARKS -> MarksScreen(
+            studentProfile = studentProfile,
             onBack = { selectedFeature = null }
         )
         AcademicFeature.TIMETABLE -> TimetableScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.EXAMS -> ExamScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.ASSIGNMENTS -> AssignmentsScreen(
-            onBack = { selectedFeature = null }
-        )
-        AcademicFeature.MENTORSHIP -> MentorListScreen(
+            studentProfile = studentProfile,
             onBack = { selectedFeature = null }
         )
     }
@@ -83,6 +82,7 @@ fun AcademicModule(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AcademicDashboard(
+    studentProfile: UserProfile,
     onFeatureSelected: (AcademicFeature) -> Unit,
     onLogout: (() -> Unit)? = null,
     onProfileClick: (() -> Unit)? = null
@@ -90,7 +90,16 @@ fun AcademicDashboard(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Academic Module") },
+                title = {
+                    Column {
+                        Text("Student Dashboard")
+                        Text(
+                            "${studentProfile.userClass} — Div ${studentProfile.division}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -113,9 +122,9 @@ fun AcademicDashboard(
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             contentPadding = paddingValues,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(12.dp)
         ) {
             items(AcademicFeature.values()) { feature ->
                 AcademicFeatureCard(
@@ -142,7 +151,7 @@ fun AcademicFeatureCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -152,18 +161,16 @@ fun AcademicFeatureCard(
                 modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = feature.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = feature.description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-
-
             )
         }
     }
@@ -174,59 +181,14 @@ enum class AcademicFeature(
     val description: String,
     val icon: ImageVector
 ) {
-    ATTENDANCE(
-        title = "Attendance",
-        description = "Track attendance by subject or day",
-        icon = Icons.Default.Person
-    ),
-    APTITUDE(
-        title = "Aptitude",
-        description = "Aptitude tests and training",
-        icon = Icons.Default.Psychology
-    ),
-    COMPETITIVE(
-        title = "Competitive",
-        description = "Competitive exam preparation",
-        icon = Icons.Default.EmojiEvents
-    ),
-    TESTS(
-        title = "Tests",
-        description = "Question papers and internal tests",
-        icon = Icons.Default.Quiz
-    ),
-    EVENT_NOTICE(
-        title = "Event Notice",
-        description = "Academic and extracurricular events",
-        icon = Icons.Default.Campaign
-    ),
-    EVENT_ATTENDANCE(
-        title = "Event Attendance",
-        description = "Track event participation",
-        icon = Icons.Default.Event
-    ),
-    STUDENT_PROFILE(
-        title = "Student Profile",
-        description = "Individual student information",
-        icon = Icons.Default.AccountCircle
-    ),
-    TIMETABLE(
-        title = "Time-table",
-        description = "Class timetable management",
-        icon = Icons.Default.Schedule
-    ),
-    EXAMS(
-        title = "OR/PR/Exam",
-        description = "Oral, Practical, Written exams",
-        icon = Icons.Default.Assignment
-    ),
-    ASSIGNMENTS(
-        title = "Assignments",
-        description = "Assignment distribution and evaluation",
-        icon = Icons.Default.Assignment
-    ),
-    MENTORSHIP(
-        title = "Mentor List",
-        description = "Mentor-Mentee mapping",
-        icon = Icons.Default.SupervisorAccount
-    )
+    ATTENDANCE(      "Attendance",       "Track attendance",            Icons.Default.Person),
+    ASSIGNMENTS(     "Assignments",      "View & submit assignments",   Icons.Default.Assignment),
+    NOTIFICATIONS(   "Notifications",    "Class notices",               Icons.Default.Notifications),
+    MARKS(           "My Marks",         "View your marks & grades",    Icons.Default.Grade),
+    TIMETABLE(       "Timetable",        "Class timetable",             Icons.Default.Schedule),
+    TESTS(           "Tests",            "Question papers & tests",     Icons.Default.Quiz),
+    EVENT_NOTICE(    "Event Notice",     "Academic events",             Icons.Default.Campaign),
+    EVENT_ATTENDANCE("Event Attendance", "Track event participation",   Icons.Default.Event),
+    EXAMS(           "OR/PR/Exam",       "Oral, Practical exams",       Icons.Default.School),
+    MENTORSHIP(      "Mentor List",      "Mentor-Mentee mapping",       Icons.Default.SupervisorAccount)
 }
