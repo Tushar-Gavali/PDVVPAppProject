@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="com.edutrack" />
-                  <option name="mobileSdkAppId" value="1:578885139567:android:a6779849fafc521184219a" />
-                  <option name="projectId" value="pdvvp-d612f" />
-                  <option name="projectNumber" value="578885139567" />
+                  <option name="appId" value="com.coeapp.edutech" />
+                  <option name="mobileSdkAppId" value="1:144344113551:android:20549a71b70c3373d1ebfa" />
+                  <option name="projectId" value="coenagar-9ec86" />
+                  <option name="projectNumber" value="144344113551" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

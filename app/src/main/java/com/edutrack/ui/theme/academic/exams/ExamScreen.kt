@@ -12,15 +12,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.edutrack.data.model.Test
-import com.edutrack.data.model.TestType
-import com.edutrack.data.model.TestResult
-import java.time.LocalDate
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.edutrack.data.model.OrPrExamDoc
+import com.edutrack.data.model.OrPrExamResultDoc
+import com.edutrack.data.model.UiState
+import com.edutrack.data.model.UserProfile
+import com.edutrack.ui.viewmodel.OrPrExamViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExamScreen(onBack: () -> Unit) {
+fun ExamScreen(
+    studentProfile: UserProfile,
+    onBack: () -> Unit,
+    viewModel: OrPrExamViewModel = viewModel()
+) {
     var selectedTab by remember { mutableStateOf(0) }
+    
+    val examsState by viewModel.studentExams.collectAsStateWithLifecycle()
+    val resultsState by viewModel.studentResults.collectAsStateWithLifecycle()
+
+    LaunchedEffect(studentProfile.userClass, studentProfile.division) {
+        viewModel.loadExamsForStudent(studentProfile.userClass, studentProfile.division)
+        viewModel.loadResultsForStudent(studentProfile.userId)
+    }
 
     Scaffold(
         topBar = {
@@ -29,11 +47,6 @@ fun ExamScreen(onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { /* Schedule new exam */ }) {
-                        Icon(Icons.Default.Add, contentDescription = "Schedule Exam")
                     }
                 }
             )
@@ -58,249 +71,94 @@ fun ExamScreen(onBack: () -> Unit) {
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("Written Exams") }
-                )
-                Tab(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    text = { Text("Results") }
+                    text = { Text("Written") }
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             when (selectedTab) {
-                0 -> OralExamsView()
-                1 -> PracticalExamsView()
-                2 -> WrittenExamsView()
-                3 -> ExamResultsView()
+                0 -> FilteredExamsView(examsState, "ORAL", "No oral exams scheduled")
+                1 -> FilteredExamsView(examsState, "PRACTICAL", "No practical exams scheduled")
+                2 -> FilteredExamsView(examsState, "WRITTEN", "No written exams scheduled")
             }
         }
     }
 }
 
 @Composable
-fun OralExamsView() {
-    // Mock data for oral exams
-    val oralExams = remember {
-        listOf(
-            Test(
-                id = "OR001",
-                title = "Database Viva",
-                description = "Oral examination on database concepts and queries",
-                subjectId = "CS301",
-                testType = TestType.ORAL,
-                totalMarks = 25,
-                duration = 15,
-                scheduledDate = LocalDate.now().plusDays(5),
-                scheduledTime = "10:00",
-                venue = "Faculty Room 1",
-                instructions = "Prepare topics: SQL, Normalization, Transactions",
-                createdBy = "Dr. Davis"
-            ),
-            Test(
-                id = "OR002",
-                title = "Software Engineering Presentation",
-                description = "Project presentation and Q&A session",
-                subjectId = "CS302",
-                testType = TestType.ORAL,
-                totalMarks = 30,
-                duration = 20,
-                scheduledDate = LocalDate.now().plusDays(8),
-                scheduledTime = "14:00",
-                venue = "Conference Room",
-                instructions = "Prepare project demo and documentation",
-                createdBy = "Prof. Wilson"
-            )
-        )
-    }
-
-    ExamList(
-        exams = oralExams,
-        emptyMessage = "No oral exams scheduled"
-    )
-}
-
-@Composable
-fun PracticalExamsView() {
-    // Mock data for practical exams
-    val practicalExams = remember {
-        listOf(
-            Test(
-                id = "PR001",
-                title = "Programming Lab Practical",
-                description = "Coding practical examination on data structures",
-                subjectId = "CS201",
-                testType = TestType.PRACTICAL,
-                totalMarks = 50,
-                duration = 120,
-                scheduledDate = LocalDate.now().plusDays(10),
-                scheduledTime = "09:00",
-                venue = "Computer Lab 1",
-                instructions = "Bring student ID and be familiar with IDE",
-                createdBy = "Dr. Smith"
-            ),
-            Test(
-                id = "PR002",
-                title = "Web Development Practical",
-                description = "Build a complete web application",
-                subjectId = "CS303",
-                testType = TestType.PRACTICAL,
-                totalMarks = 75,
-                duration = 180,
-                scheduledDate = LocalDate.now().plusDays(12),
-                scheduledTime = "13:00",
-                venue = "Computer Lab 2",
-                instructions = "HTML, CSS, JavaScript, and frameworks allowed",
-                createdBy = "Prof. Taylor"
-            )
-        )
-    }
-
-    ExamList(
-        exams = practicalExams,
-        emptyMessage = "No practical exams scheduled"
-    )
-}
-
-@Composable
-fun WrittenExamsView() {
-    // Mock data for written exams
-    val writtenExams = remember {
-        listOf(
-            Test(
-                id = "WE001",
-                title = "Computer Networks Final Exam",
-                description = "Final written examination covering all network concepts",
-                subjectId = "CS304",
-                testType = TestType.WRITTEN,
-                totalMarks = 100,
-                duration = 180,
-                scheduledDate = LocalDate.now().plusDays(20),
-                scheduledTime = "09:00",
-                venue = "Examination Hall A",
-                instructions = "Bring calculator and writing materials only",
-                createdBy = "Dr. Brown"
-            ),
-            Test(
-                id = "WE002",
-                title = "Operating Systems Mid-Term",
-                description = "Mid-semester written examination",
-                subjectId = "CS305",
-                testType = TestType.WRITTEN,
-                totalMarks = 50,
-                duration = 90,
-                scheduledDate = LocalDate.now().plusDays(15),
-                scheduledTime = "14:00",
-                venue = "Examination Hall B",
-                instructions = "Closed book examination",
-                createdBy = "Prof. Martinez"
-            )
-        )
-    }
-
-    ExamList(
-        exams = writtenExams,
-        emptyMessage = "No written exams scheduled"
-    )
-}
-
-@Composable
-fun ExamResultsView() {
-    // Mock data for exam results
-    val examResults = remember {
-        listOf(
-            TestResult(
-                id = "ER001",
-                testId = "OR001",
-                studentId = "S001",
-                obtainedMarks = 22,
-                totalMarks = 25,
-                percentage = 88.0,
-                grade = "A+",
-                remarks = "Excellent understanding of concepts"
-            ),
-            TestResult(
-                id = "ER002",
-                testId = "PR001",
-                studentId = "S001",
-                obtainedMarks = 42,
-                totalMarks = 50,
-                percentage = 84.0,
-                grade = "A",
-                remarks = "Good coding skills, minor optimization issues"
-            ),
-            TestResult(
-                id = "ER003",
-                testId = "WE001",
-                studentId = "S001",
-                obtainedMarks = 78,
-                totalMarks = 100,
-                percentage = 78.0,
-                grade = "B+",
-                remarks = "Good theoretical knowledge"
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "Exam Results",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        items(examResults) { result ->
-            ExamResultCard(result = result)
-        }
-    }
-}
-
-@Composable
-fun ExamList(
-    exams: List<Test>,
+fun FilteredExamsView(
+    examsState: UiState<List<OrPrExamDoc>>,
+    typeFilter: String,
     emptyMessage: String
 ) {
-    if (exams.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = emptyMessage,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(exams) { exam ->
-                ExamCard(exam = exam)
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (examsState) {
+            is UiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            is UiState.Empty -> Text(emptyMessage, color = Color.Gray, modifier = Modifier.align(Alignment.Center))
+            is UiState.Error -> Text(examsState.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
+            is UiState.Success -> {
+                val filteredList = examsState.data.filter { it.testType.equals(typeFilter, ignoreCase = true) }
+                if (filteredList.isEmpty()) {
+                    Text(emptyMessage, color = Color.Gray, modifier = Modifier.align(Alignment.Center))
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredList, key = { it.id }) { exam ->
+                            ExamCard(exam = exam)
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun ExamCard(exam: Test) {
+fun ExamResultsView(resultsState: UiState<List<OrPrExamResultDoc>>) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (resultsState) {
+            is UiState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            is UiState.Empty -> {
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No results uploaded yet.", color = Color.Gray)
+                }
+            }
+            is UiState.Error -> Text(resultsState.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
+            is UiState.Success -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Exam Results",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    items(resultsState.data, key = { it.id }) { result ->
+                        ExamResultCard(result = result)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExamCard(exam: OrPrExamDoc) {
+    val dateString = if (exam.scheduledDate > 0) 
+        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(exam.scheduledDate)) 
+    else "TBD"
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        onClick = { /* Navigate to exam details */ }
+        onClick = { /* Navigate to exam details if capable */ }
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -318,19 +176,19 @@ fun ExamCard(exam: Test) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = exam.description ?: "No description",
+                        text = exam.description.ifBlank { "No description" },
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
                 
                 AssistChip(
                     onClick = { },
-                    label = { Text(exam.testType.name) },
+                    label = { Text(exam.testType) },
                     colors = AssistChipDefaults.assistChipColors(
-                        containerColor = when (exam.testType) {
-                            TestType.ORAL -> Color(0xFFE3F2FD)
-                            TestType.PRACTICAL -> Color(0xFFF3E5F5)
-                            TestType.WRITTEN -> Color(0xFFE8F5E8)
+                        containerColor = when (exam.testType.uppercase()) {
+                            "ORAL" -> Color(0xFFE3F2FD)
+                            "PRACTICAL" -> Color(0xFFF3E5F5)
+                            "WRITTEN" -> Color(0xFFE8F5E8)
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         }
                     )
@@ -347,13 +205,13 @@ fun ExamCard(exam: Test) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.DateRange, contentDescription = "Date", tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("${exam.scheduledDate}", style = MaterialTheme.typography.bodySmall)
+                    Text(dateString, style = MaterialTheme.typography.bodySmall)
                 }
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.AccessTime, contentDescription = "Time", tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("${exam.scheduledTime} (${exam.duration} mins)", style = MaterialTheme.typography.bodySmall)
+                    Text("${exam.scheduledTime.ifBlank { "TBD" }} (${exam.duration} mins)", style = MaterialTheme.typography.bodySmall)
                 }
             }
             
@@ -363,19 +221,16 @@ fun ExamCard(exam: Test) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                exam.venue?.let { venue ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Venue", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(venue, style = MaterialTheme.typography.bodySmall)
-                    }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.LocationOn, contentDescription = "Venue", tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(exam.venue.ifBlank { "TBD" }, style = MaterialTheme.typography.bodySmall)
                 }
-                
                 Text("Marks: ${exam.totalMarks}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
             
             // Instructions
-            exam.instructions?.let { instructions ->
+            if (exam.instructions.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Card(
                     colors = CardDefaults.cardColors(
@@ -383,7 +238,7 @@ fun ExamCard(exam: Test) {
                     )
                 ) {
                     Text(
-                        text = "Instructions: $instructions",
+                        text = "Instructions: ${exam.instructions}",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(8.dp)
                     )
@@ -394,7 +249,7 @@ fun ExamCard(exam: Test) {
 }
 
 @Composable
-fun ExamResultCard(result: TestResult) {
+fun ExamResultCard(result: OrPrExamResultDoc) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -407,13 +262,13 @@ fun ExamResultCard(result: TestResult) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Exam ID: ${result.testId}",
+                    text = "Test Name: Assigned Test", // Can join locally if needed
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = result.remarks ?: "No remarks",
+                    text = result.remarks.ifBlank { "No remarks" },
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -424,8 +279,9 @@ fun ExamResultCard(result: TestResult) {
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                    val percentage = if (result.totalMarks > 0) ((result.obtainedMarks.toFloat() / result.totalMarks) * 100).toInt() else 0
                     Text(
-                        text = "(${result.percentage}%)",
+                        text = "($percentage%)",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -433,7 +289,7 @@ fun ExamResultCard(result: TestResult) {
             
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = when (result.grade) {
+                    containerColor = when (result.grade.uppercase()) {
                         "A+", "A" -> Color(0xFF4CAF50)
                         "B+", "B" -> Color(0xFF2196F3)
                         "C+", "C" -> Color(0xFFFF9800)
@@ -442,7 +298,7 @@ fun ExamResultCard(result: TestResult) {
                 )
             ) {
                 Text(
-                    text = result.grade,
+                    text = result.grade.ifBlank { "N/A" },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     color = Color.White,
                     fontWeight = FontWeight.Bold,

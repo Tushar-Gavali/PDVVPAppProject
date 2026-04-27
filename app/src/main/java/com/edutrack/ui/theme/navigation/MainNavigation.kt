@@ -1,5 +1,7 @@
-    package com.edutrack.ui.navigation
+package com.edutrack.ui.navigation
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -8,8 +10,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
-import com.edutrack.data.model.UserRole
+import com.edutrack.data.model.UserProfile
 import com.edutrack.ui.academic.AcademicModule
 import com.edutrack.ui.academic.profile.StudentProfileScreen
 import com.edutrack.ui.academic.teacher.TeacherProfileScreen
@@ -19,140 +23,129 @@ import com.edutrack.ui.academic.teacher.TeacherStudentsScreen
 import com.edutrack.ui.academic.teacher.TeacherAttendanceScreen
 import com.edutrack.ui.academic.teacher.TeacherAssignmentsScreen
 import com.edutrack.ui.academic.teacher.TeacherExamsScreen
+import com.edutrack.ui.academic.teacher.TeacherOrPrExamsScreen
 import com.edutrack.ui.academic.teacher.TeacherTimetableScreen
 import com.edutrack.ui.academic.teacher.TeacherNoticesScreen
 import com.edutrack.ui.academic.teacher.TeacherQuestionPaperScreen
-import com.edutrack.ui.auth.AuthViewModel
+import com.edutrack.ui.academic.teacher.TeacherMarksScreen
+import com.edutrack.ui.viewmodel.AuthViewModel
 import com.edutrack.ui.auth.LoginScreen
 import com.edutrack.ui.auth.TeacherRegistrationScreen
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainNavigation() {
-    val authViewModel = remember { AuthViewModel() }
-    val authState = authViewModel.authState
+fun MainNavigation(authViewModel: AuthViewModel = viewModel()) {
+    val authState by authViewModel.authState.collectAsStateWithLifecycle()
     var showRegistration by remember { mutableStateOf(false) }
 
     when {
         !authState.isLoggedIn -> {
             if (showRegistration) {
                 TeacherRegistrationScreen(
+                    isLoading = authState.isLoading,
                     onBack = { showRegistration = false },
-                    onRegistrationSuccess = { 
-                        showRegistration = false
-                        // TODO: Show success message or auto-login
+                    onRegister = { email, password, profile ->
+                        authViewModel.registerTeacher(email, password, profile,
+                            onSuccess = { showRegistration = false },
+                            onError = { /* error shown via authState */ }
+                        )
                     }
                 )
             } else {
                 LoginScreen(
-                    onLoginSuccess = { role ->
-                        authViewModel.login(
-                            com.edutrack.data.model.LoginRequest(
-                                email = when (role) {
-                                    UserRole.STUDENT -> null
-                                    UserRole.TEACHER -> "teacher@demo.com"
-                                    UserRole.ADMIN -> "admin@demo.com"
-                                },
-                                password = when (role) {
-                                    UserRole.STUDENT -> null
-                                    else -> "password"
-                                },
-                                prn = when (role) {
-                                    UserRole.STUDENT -> "S001"
-                                    else -> null
-                                },
-                                dateOfBirth = when (role) {
-                                    UserRole.STUDENT -> "15/03/2000"
-                                    else -> null
-                                },
-                                role = role
-                            )
-                        )
-                    },
+                    authState = authState,
+                    onLoginClick = { request -> authViewModel.login(request) },
                     onRegisterClick = { showRegistration = true }
                 )
             }
         }
-        authState.user?.role == UserRole.STUDENT -> {
+        authState.userProfile?.role == "student" -> {
             StudentApp(
+                userProfile = authState.userProfile!!,
                 onLogout = { authViewModel.logout() }
             )
         }
-        authState.user?.role == UserRole.TEACHER -> {
+        authState.userProfile?.role == "teacher" -> {
             TeacherApp(
+                userProfile = authState.userProfile!!,
+                authViewModel = authViewModel,
                 onLogout = { authViewModel.logout() }
             )
         }
-        authState.user?.role == UserRole.ADMIN -> {
-            AdminApp(
-                onLogout = { authViewModel.logout() }
-            )
+        authState.userProfile?.role == "admin" -> {
+            AdminApp(onLogout = { authViewModel.logout() })
         }
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun StudentApp(onLogout: () -> Unit) {
+fun StudentApp(userProfile: UserProfile, onLogout: () -> Unit) {
     var selectedScreen by remember { mutableStateOf<StudentScreen?>(null) }
-    
+
     when (selectedScreen) {
         null -> AcademicModule(
             navController = rememberNavController(),
+            studentProfile = userProfile,
             onLogout = onLogout,
             onProfileClick = { selectedScreen = StudentScreen.PROFILE }
         )
         StudentScreen.PROFILE -> StudentProfileScreen(
+            userProfile = userProfile,
             onBack = { selectedScreen = null }
         )
     }
 }
 
 @Composable
-fun TeacherApp(onLogout: () -> Unit) {
+fun TeacherApp(userProfile: UserProfile, authViewModel: AuthViewModel, onLogout: () -> Unit) {
     var selectedScreen by remember { mutableStateOf<TeacherScreen?>(null) }
-    
+
     when (selectedScreen) {
         null -> TeacherDashboard(
+            teacherProfile = userProfile,
             onLogout = onLogout,
             onProfileClick = { selectedScreen = TeacherScreen.PROFILE },
-            onFeatureClick = { feature -> 
-                selectedScreen = when (feature) {
-                    com.edutrack.ui.academic.teacher.TeacherFeature.CLASSES -> TeacherScreen.CLASSES
-                    com.edutrack.ui.academic.teacher.TeacherFeature.STUDENTS -> TeacherScreen.STUDENTS
-                    com.edutrack.ui.academic.teacher.TeacherFeature.ATTENDANCE -> TeacherScreen.ATTENDANCE
-                    com.edutrack.ui.academic.teacher.TeacherFeature.ASSIGNMENTS -> TeacherScreen.ASSIGNMENTS
-                    com.edutrack.ui.academic.teacher.TeacherFeature.EXAMS -> TeacherScreen.EXAMS
-                    com.edutrack.ui.academic.teacher.TeacherFeature.TIMETABLE -> TeacherScreen.TIMETABLE
-                    com.edutrack.ui.academic.teacher.TeacherFeature.NOTICES -> TeacherScreen.NOTICES
-                    com.edutrack.ui.academic.teacher.TeacherFeature.QUESTION_PAPER -> TeacherScreen.QUESTION_PAPER
+            onFeatureClick = { feature ->
+                selectedScreen = when (feature.name) {
+                    "CLASSES"       -> TeacherScreen.CLASSES
+                    "STUDENTS"      -> TeacherScreen.STUDENTS
+                    "ATTENDANCE"    -> TeacherScreen.ATTENDANCE
+                    "ASSIGNMENTS"   -> TeacherScreen.ASSIGNMENTS
+                    "MARKS"         -> TeacherScreen.MARKS
+                    "EXAMS"         -> TeacherScreen.EXAMS
+                    "OR_PR_EXAM"    -> TeacherScreen.OR_PR_EXAMS
+                    "TIMETABLE"     -> TeacherScreen.TIMETABLE
+                    "NOTICES"       -> TeacherScreen.NOTICES
+                    "QUESTION_PAPER"-> TeacherScreen.QUESTION_PAPER
+                    else            -> null
                 }
             }
         )
-        TeacherScreen.CLASSES -> TeacherClassesScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.STUDENTS -> TeacherStudentsScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.ATTENDANCE -> TeacherAttendanceScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.ASSIGNMENTS -> TeacherAssignmentsScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.EXAMS -> TeacherExamsScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.TIMETABLE -> TeacherTimetableScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.NOTICES -> TeacherNoticesScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.QUESTION_PAPER -> TeacherQuestionPaperScreen(
-            onBack = { selectedScreen = null }
-        )
-        TeacherScreen.PROFILE -> TeacherProfileScreen(
+        TeacherScreen.CLASSES       -> TeacherClassesScreen(onBack = { selectedScreen = null })
+        TeacherScreen.STUDENTS      -> TeacherStudentsScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.ATTENDANCE    -> TeacherAttendanceScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.ASSIGNMENTS   -> TeacherAssignmentsScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.MARKS         -> TeacherMarksScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.EXAMS         -> TeacherExamsScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.OR_PR_EXAMS   -> TeacherOrPrExamsScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.TIMETABLE     -> TeacherTimetableScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.NOTICES       -> TeacherNoticesScreen(
+            teacherProfile = userProfile, onBack = { selectedScreen = null })
+        TeacherScreen.QUESTION_PAPER-> TeacherQuestionPaperScreen(onBack = { selectedScreen = null })
+        TeacherScreen.PROFILE       -> TeacherProfileScreen(
+            userProfile = userProfile,
+            onUpdateProfile = { updatedProfile ->
+                authViewModel.updateProfile(updatedProfile, onSuccess = {}, onError = {})
+            },
             onBack = { selectedScreen = null }
         )
     }
@@ -161,17 +154,13 @@ fun TeacherApp(onLogout: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminApp(onLogout: () -> Unit) {
-    // TODO: Implement admin dashboard
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Admin Dashboard") },
                 actions = {
                     IconButton(onClick = onLogout) {
-                        Icon(
-                            Icons.Default.Logout,
-                            contentDescription = "Logout"
-                        )
+                        Icon(Icons.Default.Logout, contentDescription = "Logout")
                     }
                 }
             )
@@ -185,30 +174,15 @@ fun AdminApp(onLogout: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = "Admin Dashboard",
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                text = "Admin features coming soon...",
-                style = MaterialTheme.typography.bodyLarge
-            )
+            Text("Admin Dashboard", style = MaterialTheme.typography.headlineMedium)
+            Text("Admin features coming soon...", style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
 
-enum class StudentScreen {
-    PROFILE
-}
+enum class StudentScreen { PROFILE }
 
 enum class TeacherScreen {
-    CLASSES,
-    STUDENTS,
-    ATTENDANCE,
-    ASSIGNMENTS,
-    EXAMS,
-    TIMETABLE,
-    NOTICES,
-    QUESTION_PAPER,
-    PROFILE
+    CLASSES, STUDENTS, ATTENDANCE, ASSIGNMENTS, MARKS,
+    EXAMS, OR_PR_EXAMS, TIMETABLE, NOTICES, QUESTION_PAPER, PROFILE
 }

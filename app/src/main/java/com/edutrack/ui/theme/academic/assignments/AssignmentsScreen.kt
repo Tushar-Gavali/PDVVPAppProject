@@ -3,6 +3,7 @@ package com.edutrack.ui.academic.assignments
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,17 +12,57 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.edutrack.data.model.Assignment
-import com.edutrack.data.model.AssignmentSubmission
-import com.edutrack.data.model.SubmissionStatus
-import java.time.LocalDate
-import java.time.LocalDateTime
+import com.edutrack.data.model.Submission
+import com.edutrack.data.model.UiState
+import com.edutrack.data.model.UserProfile
+import com.edutrack.ui.viewmodel.AssignmentViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
+/**
+ * AssignmentsScreen — Student view
+ *
+ * - Lists assignments filtered by the student's class+division (real-time)
+ * - Shows submission status per assignment
+ * - Submit dialog with optional note
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AssignmentsScreen(onBack: () -> Unit) {
-    var selectedTab by remember { mutableStateOf(0) }
+fun AssignmentsScreen(
+    studentProfile: UserProfile,
+    onBack: () -> Unit,
+    viewModel: AssignmentViewModel = viewModel()
+) {
+    val assignmentsState by viewModel.assignments.collectAsStateWithLifecycle()
+    val mySubmissions by viewModel.mySubmissions.collectAsStateWithLifecycle()
+    val operationResult by viewModel.operationResult.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var submittingAssignment by remember { mutableStateOf<Assignment?>(null) }
+
+    // Build a quick lookup: assignmentId -> Submission (for status)
+    val submissionMap: Map<String, Submission> = remember(mySubmissions) {
+        if (mySubmissions is UiState.Success) {
+            (mySubmissions as UiState.Success<List<Submission>>).data.associateBy { it.assignmentId }
+        } else emptyMap()
+    }
+
+    LaunchedEffect(studentProfile.userId, studentProfile.userClass, studentProfile.division) {
+        viewModel.loadForStudent(studentProfile.userClass, studentProfile.division)
+        viewModel.loadMySubmissions(studentProfile.userId)
+    }
+
+    LaunchedEffect(operationResult) {
+        operationResult?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearOperationResult()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -32,275 +73,104 @@ fun AssignmentsScreen(onBack: () -> Unit) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { /* Create new assignment */ }) {
-                        Icon(Icons.Default.Add, contentDescription = "Create Assignment")
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+
+        when (val state = assignmentsState) {
+            is UiState.Loading -> Box(
+                Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center
+            ) { CircularProgressIndicator() }
+
+            is UiState.Empty -> Box(
+                Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.Assignment, contentDescription = null,
+                        modifier = Modifier.size(72.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("No assignments posted yet.", style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            is UiState.Error -> Box(
+                Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center
+            ) { Text(state.message, color = MaterialTheme.colorScheme.error) }
+
+            is UiState.Success -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(state.data, key = { it.id }) { assignment ->
+                        val existingSubmission = submissionMap[assignment.id]
+                        StudentAssignmentCard(
+                            assignment = assignment,
+                            submission = existingSubmission,
+                            onSubmit = { submittingAssignment = assignment }
+                        )
                     }
                 }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Active") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Submitted") }
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = { Text("Graded") }
-                )
-                Tab(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    text = { Text("All") }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            when (selectedTab) {
-                0 -> ActiveAssignmentsView()
-                1 -> SubmittedAssignmentsView()
-                2 -> GradedAssignmentsView()
-                3 -> AllAssignmentsView()
             }
         }
     }
-}
 
-@Composable
-fun ActiveAssignmentsView() {
-    // Mock data for active assignments
-    val activeAssignments = remember {
-        listOf(
-            Assignment(
-                id = "A001",
-                title = "Data Structures Implementation",
-                description = "Implement various data structures including linked lists, stacks, and queues in your preferred programming language.",
-                subjectId = "CS201",
-                assignedBy = "Dr. Smith",
-                assignedTo = listOf("S001", "S002", "S003"),
-                totalMarks = 50,
-                dueDate = LocalDate.now().plusDays(7),
-                dueTime = "23:59",
-                instructions = "Submit source code with proper documentation and test cases.",
-                attachments = listOf("assignment_guidelines.pdf")
-            ),
-            Assignment(
-                id = "A002",
-                title = "Database Design Project",
-                description = "Design and implement a database for a library management system.",
-                subjectId = "CS301",
-                assignedBy = "Dr. Davis",
-                assignedTo = listOf("S001", "S002"),
-                totalMarks = 75,
-                dueDate = LocalDate.now().plusDays(14),
-                dueTime = "18:00",
-                instructions = "Include ER diagram, normalized tables, and sample queries.",
-                attachments = listOf("project_requirements.pdf", "sample_data.sql")
-            )
-        )
-    }
-
-    AssignmentList(
-        assignments = activeAssignments,
-        emptyMessage = "No active assignments",
-        showStatus = false
-    )
-}
-
-@Composable
-fun SubmittedAssignmentsView() {
-    // Mock data for submitted assignments
-    val submittedAssignments = remember {
-        listOf(
-            Assignment(
-                id = "A003",
-                title = "Algorithm Analysis Report",
-                description = "Analyze time and space complexity of sorting algorithms.",
-                subjectId = "CS202",
-                assignedBy = "Prof. Johnson",
-                assignedTo = listOf("S001"),
-                totalMarks = 40,
-                dueDate = LocalDate.now().minusDays(3),
-                dueTime = "23:59",
-                instructions = "Submit detailed report with complexity analysis."
-            )
-        )
-    }
-
-    AssignmentList(
-        assignments = submittedAssignments,
-        emptyMessage = "No submitted assignments",
-        showStatus = true
-    )
-}
-
-@Composable
-fun GradedAssignmentsView() {
-    // Mock data for graded assignments with submissions
-    val gradedSubmissions = remember {
-        listOf(
-            Pair(
-                Assignment(
-                    id = "A004",
-                    title = "Web Development Portfolio",
-                    description = "Create a personal portfolio website using HTML, CSS, and JavaScript.",
-                    subjectId = "CS303",
-                    assignedBy = "Prof. Taylor",
-                    assignedTo = listOf("S001"),
-                    totalMarks = 100,
-                    dueDate = LocalDate.now().minusDays(10),
-                    dueTime = "23:59"
-                ),
-                AssignmentSubmission(
-                    id = "AS004",
-                    assignmentId = "A004",
-                    studentId = "S001",
-                    submissionText = "Portfolio website with responsive design and interactive features.",
-                    attachments = listOf("portfolio.zip", "documentation.pdf"),
-                    submittedAt = LocalDate.now().minusDays(8).atTime(20, 30),
-                    status = SubmissionStatus.EVALUATED,
-                    grade = "A",
-                    obtainedMarks = 92,
-                    feedback = "Excellent work! Great use of modern web technologies and responsive design."
+    // ── Submit Assignment Dialog ────────────────────────────────────────
+    submittingAssignment?.let { assignment ->
+        SubmitAssignmentDialog(
+            assignment = assignment,
+            studentProfile = studentProfile,
+            onDismiss = { submittingAssignment = null },
+            onSubmit = { note ->
+                viewModel.submitAssignment(
+                    Submission(
+                        assignmentId = assignment.id,
+                        assignmentTitle = assignment.title,
+                        studentId = studentProfile.userId,
+                        studentName = studentProfile.name,
+                        note = note,
+                        submittedAt = System.currentTimeMillis()
+                    )
                 )
-            )
-        )
-    }
-
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Text(
-                text = "Graded Assignments",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        }
-        items(gradedSubmissions) { (assignment, submission) ->
-            GradedAssignmentCard(assignment = assignment, submission = submission)
-        }
-    }
-}
-
-@Composable
-fun AllAssignmentsView() {
-    // Combine all assignments
-    val allAssignments = remember {
-        listOf(
-            Assignment(
-                id = "A001",
-                title = "Data Structures Implementation",
-                description = "Implement various data structures including linked lists, stacks, and queues.",
-                subjectId = "CS201",
-                assignedBy = "Dr. Smith",
-                assignedTo = listOf("S001"),
-                totalMarks = 50,
-                dueDate = LocalDate.now().plusDays(7),
-                dueTime = "23:59"
-            ),
-            Assignment(
-                id = "A002",
-                title = "Database Design Project",
-                description = "Design and implement a database for a library management system.",
-                subjectId = "CS301",
-                assignedBy = "Dr. Davis",
-                assignedTo = listOf("S001"),
-                totalMarks = 75,
-                dueDate = LocalDate.now().plusDays(14),
-                dueTime = "18:00"
-            ),
-            Assignment(
-                id = "A003",
-                title = "Algorithm Analysis Report",
-                description = "Analyze time and space complexity of sorting algorithms.",
-                subjectId = "CS202",
-                assignedBy = "Prof. Johnson",
-                assignedTo = listOf("S001"),
-                totalMarks = 40,
-                dueDate = LocalDate.now().minusDays(3),
-                dueTime = "23:59"
-            )
-        )
-    }
-
-    AssignmentList(
-        assignments = allAssignments,
-        emptyMessage = "No assignments found",
-        showStatus = true
-    )
-}
-
-@Composable
-fun AssignmentList(
-    assignments: List<Assignment>,
-    emptyMessage: String,
-    showStatus: Boolean = true
-) {
-    if (assignments.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = emptyMessage,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(assignments) { assignment ->
-                AssignmentCard(
-                    assignment = assignment,
-                    showStatus = showStatus
-                )
+                submittingAssignment = null
             }
-        }
+        )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Student Assignment Card
+// ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun AssignmentCard(
+fun StudentAssignmentCard(
     assignment: Assignment,
-    showStatus: Boolean = true
+    submission: Submission?,
+    onSubmit: () -> Unit
 ) {
-    val isOverdue = assignment.dueDate.isBefore(LocalDate.now())
-    val isDueSoon = assignment.dueDate.isBefore(LocalDate.now().plusDays(2))
+    val isOverdue = assignment.dueDate in 1 until System.currentTimeMillis()
+    val dueDateStr = remember(assignment.dueDate) {
+        if (assignment.dueDate > 0L)
+            SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(assignment.dueDate))
+        else "No due date"
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        onClick = { /* Navigate to assignment details */ }
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // ── Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -308,186 +178,242 @@ fun AssignmentCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = assignment.title,
+                        assignment.title,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = assignment.description,
-                        style = MaterialTheme.typography.bodyMedium
+                        "By: ${assignment.uploadedByName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                
-                if (showStatus) {
-                    AssistChip(
-                        onClick = { },
-                        label = { 
-                            Text(
-                                when {
-                                    isOverdue -> "Overdue"
-                                    isDueSoon -> "Due Soon"
-                                    else -> "Active"
-                                }
-                            )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = when {
-                                isOverdue -> Color(0xFFFFEBEE)
-                                isDueSoon -> Color(0xFFFFF3E0)
-                                else -> Color(0xFFE8F5E8)
+                // ── Status Badge ─────────────────────────────────────────────
+                when {
+                    // Evaluated: teacher awarded marks
+                    submission != null && submission.marksAwarded >= 0 -> {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 2.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.EmojiEvents, null,
+                                    Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "${submission.marksAwarded} marks",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
-                        )
-                    )
+                        }
+                    }
+                    // Submitted: waiting for teacher evaluation
+                    submission != null -> {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF1B5E20).copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle, null,
+                                    Modifier.size(14.dp),
+                                    tint = Color(0xFF2E7D32)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "Submitted",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF2E7D32)
+                                )
+                            }
+                        }
+                    }
+                    // Overdue: past due date, not submitted
+                    isOverdue -> {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning, null,
+                                    Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "Overdue",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                    // Pending: not yet submitted
+                    else -> {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFFF57F17).copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Schedule, null,
+                                    Modifier.size(14.dp),
+                                    tint = Color(0xFFE65100)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    "Pending",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFE65100)
+                                )
+                            }
+                        }
+                    }
                 }
             }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            // Assignment details
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                assignment.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.CalendarToday, null,
+                    modifier = Modifier.size(14.dp),
+                    tint = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "Due: $dueDateStr",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // ── Submission timestamp
+            if (submission != null) {
+                val submittedStr = remember(submission.submittedAt) {
+                    SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(submission.submittedAt))
+                }
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.DateRange, contentDescription = "Due Date", tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Done, null, Modifier.size(12.dp), tint = Color(0xFF2E7D32))
+                    Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "Due: ${assignment.dueDate} at ${assignment.dueTime}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isOverdue) Color.Red else MaterialTheme.colorScheme.onSurface
+                        "Submitted on $submittedStr",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                
-                Text("Marks: ${assignment.totalMarks}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Assigned by: ${assignment.assignedBy}", style = MaterialTheme.typography.bodySmall)
-                Text("Subject: ${assignment.subjectId}", style = MaterialTheme.typography.bodySmall)
-            }
-            
-            // Instructions
-            assignment.instructions?.let { instructions ->
-                Spacer(modifier = Modifier.height(8.dp))
+
+            // ── Feedback from teacher
+            if (submission != null && submission.feedback.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text(
-                        text = "Instructions: $instructions",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-            }
-            
-            // Attachments
-            assignment.attachments?.let { attachments ->
-                if (attachments.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.AttachFile, contentDescription = "Attachments", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
+                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
+                        Icon(Icons.Default.RateReview, null, Modifier.size(14.dp).padding(top = 2.dp),
+                            tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "Attachments: ${attachments.size} files",
+                            "Teacher: ${submission.feedback}",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
             }
+
+            // ── Submit button only when not yet submitted
+            if (submission == null) {
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = onSubmit,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Upload, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Submit Assignment")
+                }
+            }
         }
     }
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Submit Assignment Dialog
+// ───────────────────────────────────────────────────────────────────────────
 @Composable
-fun GradedAssignmentCard(
+fun SubmitAssignmentDialog(
     assignment: Assignment,
-    submission: AssignmentSubmission
+    studentProfile: UserProfile,
+    onDismiss: () -> Unit,
+    onSubmit: (note: String) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = assignment.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = assignment.description,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = when (submission.grade) {
-                            "A+", "A" -> Color(0xFF4CAF50)
-                            "B+", "B" -> Color(0xFF2196F3)
-                            "C+", "C" -> Color(0xFFFF9800)
-                            else -> Color(0xFFF44336)
-                        }
-                    )
-                ) {
-                    Text(
-                        text = submission.grade ?: "N/A",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+    var note by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Submit Assignment") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Submitted: ${submission.submittedAt?.toLocalDate()}",
-                    style = MaterialTheme.typography.bodySmall
+                    "Submitting for: ${assignment.title}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Marks: ${submission.obtainedMarks}/${assignment.totalMarks}",
+                    "Student: ${studentProfile.name}",
                     style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Add a note (optional)") },
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    maxLines = 4
                 )
             }
-            
-            submission.feedback?.let { feedback ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Text(
-                        text = "Feedback: $feedback",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-            }
-        }
-    }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSubmit(note) }) { Text("Submit") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
